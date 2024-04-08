@@ -1,0 +1,201 @@
+---
+title: "Project_Netflix"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+
+I will first begin by splitting the Netflix data into the training and test data sets. 
+```{r}
+library(ISLR2)
+library(tree)
+library(tidyverse)
+library(caret)
+
+Netfl <- read.csv("Best Movies Netflix.csv")
+
+Net <- subset(Netfl, select = c(RELEASE_YEAR:MAIN_GENRE))
+
+Net$MAIN_GENRE <- as.factor(Net$MAIN_GENRE)
+
+
+Netflix<-Net%>%
+  as_tibble()
+
+set.seed(456)
+
+netflix_index = sample(1:nrow(Netflix), nrow(Netflix)/2)
+
+NetflixTrain_set = Netflix[netflix_index,]
+
+NetflixTest_set = Netflix[-netflix_index,]
+```
+The regression tree will only work on factor variables and numeric variables, so the 'MAIN_GENRE' variable was changed in order to prevent NA's introduced by coercion. This is also why the 'TITLE' variable and 'MAIN_PRODUCTION' variable were not included because transforming these variables created too many factors. 
+
+
+The regression tree will be fitted. 
+
+```{r}
+
+Netflix_regressiontree <- tree(SCORE~., NetflixTrain_set)
+
+summary(Netflix_regressiontree)
+```
+
+This tree was plotted in order to develop a visualization of it. 
+```{r}
+plot(Netflix_regressiontree)
+text(Netflix_regressiontree,pretty=0,cex =0.5)
+```
+
+This regression tree will also be pruned with cross-validation. 
+```{r}
+set.seed(456)
+
+Pruned_Netflix <-cv.tree(Netflix_regressiontree)
+
+Pruned_Netflix
+
+```
+
+Plots were developed in order to see the results from performing cross-validation on this pruned tree. 
+
+```{r}
+plot(Pruned_Netflix$size, Pruned_Netflix$dev, type = "b",
+     xlab = "Tree Size", ylab = "SSE") 
+plot(Pruned_Netflix$k, Pruned_Netflix$dev, type = "b",
+     xlab = "Cost-Complexity Parameter", ylab = "SSE") 
+```
+
+We should choose the tree with the lowest error, which is the tree with 5 nodes. Then, we will predict on the test dataset. 
+```{r}
+NetflixLowestErrorTree = prune.tree(Netflix_regressiontree, best = 5)
+summary(NetflixLowestErrorTree)
+
+```
+
+We will create a plot of this pruned tree. 
+```{r}
+
+plot(NetflixLowestErrorTree)
+text(NetflixLowestErrorTree, pretty = 0)
+```
+This tree will be used to form the predictions on the test data set. 
+
+```{r}
+
+predictedbestNextflixtree <-predict(NetflixLowestErrorTree,newdata=NetflixTest_set)
+
+predictedbestNextflixtree
+
+
+
+```
+
+
+We will compute the RMSE through the creation of this function. 
+
+```{r}
+rmse<-function(actual, predicted){
+  rmse=sqrt(mean((actual - predicted) ^ 2))
+  mse= mean((actual-predicted)^2)
+  c(rmse,mse)
+}
+```
+
+The performance of this tree will be evaluated through using RMSE.
+```{r}
+
+rmse(NetflixTest_set$SCORE,predictedbestNextflixtree)
+```
+
+
+We will load this library in order to perform random forest and bagging. 
+
+```{r}
+library(randomForest)
+```
+
+
+We will perform bagging with atleast 500 trees. 
+```{r}
+set.seed(458)
+
+bagging_Netflix <-randomForest(SCORE~.,data=NetflixTrain_set,mtry=4,importance=TRUE,ntree=500)
+
+bagging_Netflix
+```
+
+```{r}
+
+importance(bagging_Netflix,type = 1)
+
+varImpPlot(bagging_Netflix,type = 1)
+
+
+```
+
+
+
+The test data set will be used for the predictions. 
+
+```{r}
+baggingpredictions_Netflix <- predict(bagging_Netflix,newdat=NetflixTest_set)
+
+rmse(NetflixTest_set$SCORE, baggingpredictions_Netflix)
+
+
+```
+
+
+Random forest will now be implemented on the Netflix dataset. Since this is regression, the total number of predictors divided by 3 will be the value that is selected for the mtry function. 
+
+```{r}
+set.seed(458)
+
+Netflix_randomforests <- randomForest(SCORE~.,data=NetflixTrain_set,mtry=1.333333,importance=TRUE,ntree=500)
+
+Netflix_randomforests 
+
+```
+
+The predictions will be developed on the test set now. 
+
+```{r}
+randomforestpredictions_Netflix <-predict(Netflix_randomforests,newdat=NetflixTest_set)
+
+rmse(NetflixTest_set$SCORE, randomforestpredictions_Netflix)
+```
+
+We will begin to examine the importance of each variable and how they operate in the splits of the 500 trees through these two visualizations. 
+
+```{r}
+
+importance(Netflix_randomforests,type = 1)
+
+varImpPlot(Netflix_randomforests,type = 1)
+
+
+```
+This visual uses the information from random forest's variable importance plot to create a colorful visualization in the form of a bar plot. 
+
+```{r}
+library(ggplot2)
+
+RF <- data.frame(match = c("Duration", "Number of Votes", "Release Year", "Main Genre"),
+                 runs = c(19.0453766, 10.0981472, 0.1692325, -0.3175460))
+
+RandomForestBarPlot <-ggplot(data = RF, aes(x =match, y = runs, fill = match)) + 
+  geom_bar(stat = "identity", width = 0.5) + 
+  labs(y = "%IncMSE", 
+       x = "Predictors",
+       title = "Variable Importance: Random Forest")
+
+RandomForestBarPlot + theme(legend.position ="none")
+
+
+
+```
+
+
